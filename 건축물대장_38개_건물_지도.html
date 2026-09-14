@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>건축물대장 38개 건물 지도</title>
+<style>body{margin:0;font-family:"Malgun Gothic",sans-serif}#map{height:100vh}.panel{position:fixed;z-index:2;top:16px;left:16px;width:280px;padding:16px;background:#fffc;border-radius:10px;box-shadow:0 2px 12px #0004}.panel h1{margin:0 0 6px;font-size:19px}.panel p{margin:0;color:#555;font-size:13px}.info{padding:5px;font-size:13px;line-height:1.6}.info strong{font-size:15px}</style>
+<script src="건축물대장_38개_건물_지도_data.js"></script><script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=53adfeb29db4ad29a2cf70888d6d825a&libraries=services,clusterer"></script></head>
+<body><aside class="panel"><h1>건축물대장 대상 건물</h1><p id="status">38개 건물의 좌표를 확인 중…</p><p>항공지도 · 건물 마커만 표시</p></aside><div id="map"></div><script>
+const map=new kakao.maps.Map(document.getElementById('map'),{center:new kakao.maps.LatLng(36.49,127.28),level:9});map.setMapTypeId(kakao.maps.MapTypeId.SKYVIEW);
+const geocoder=new kakao.maps.services.Geocoder(),places=new kakao.maps.services.Places(),clusterer=new kakao.maps.MarkerClusterer({map,averageCenter:true,minLevel:7}),info=new kakao.maps.InfoWindow({removable:true});let done=0,found=0;
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+function status(){done++;document.getElementById('status').textContent=`좌표 확인 ${found} / ${BUILDING_LEDGER_DATA.length}곳`}
+function add(x,lat,lng){const m=new kakao.maps.Marker({position:new kakao.maps.LatLng(lat,lng),title:x.name});kakao.maps.event.addListener(m,'click',()=>{info.setContent(`<div class="info"><strong>${esc(x.name)}</strong><br>${esc(x.address||x.query)}</div>`);info.open(map,m)});clusterer.addMarker(m);found++}
+function keyword(x){places.keywordSearch(x.query,(r,s)=>{if(s===kakao.maps.services.Status.OK)add(x,+r[0].y,+r[0].x);status()})}
+BUILDING_LEDGER_DATA.forEach(x=>{if(!x.address){keyword(x);return}geocoder.addressSearch(x.address,(r,s)=>{if(s===kakao.maps.services.Status.OK){add(x,+r[0].y,+r[0].x);status()}else keyword(x)})});
+</script></body></html>

@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>세종시 주요 인프라 지도</title>
+<style>body{margin:0;font-family:"Malgun Gothic",sans-serif}#map{height:100vh}.panel{position:fixed;z-index:2;top:16px;left:16px;width:270px;padding:16px;background:#fffc;border-radius:10px;box-shadow:0 2px 12px #0004}.panel h1{margin:0 0 6px;font-size:19px}.panel p{margin:0;color:#555;font-size:13px}.info{padding:5px;font-size:13px;line-height:1.6}.info strong{font-size:15px}</style>
+<script src="세종시_주요_인프라_지도_data.js"></script><script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=53adfeb29db4ad29a2cf70888d6d825a&libraries=clusterer"></script></head>
+<body><aside class="panel"><h1>세종시 주요 인프라</h1><p>교육·행정 시설 130곳</p><p>항공지도 · 시설 마커만 표시</p></aside><div id="map"></div><script>
+const map=new kakao.maps.Map(document.getElementById('map'),{center:new kakao.maps.LatLng(36.49,127.28),level:9});map.setMapTypeId(kakao.maps.MapTypeId.SKYVIEW);
+const clusterer=new kakao.maps.MarkerClusterer({map,averageCenter:true,minLevel:7}),bounds=new kakao.maps.LatLngBounds(),info=new kakao.maps.InfoWindow({removable:true});
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+const markers=INFRASTRUCTURE_DATA.map(x=>{const p=new kakao.maps.LatLng(x.lat,x.lng),m=new kakao.maps.Marker({position:p,title:x.name});bounds.extend(p);kakao.maps.event.addListener(m,'click',()=>{info.setContent(`<div class="info"><strong>${esc(x.name)}</strong><br>${esc(x.type)} · ${esc(x.category)}<br>${esc(x.address)}</div>`);info.open(map,m)});return m});clusterer.addMarkers(markers);map.setBounds(bounds);
+</script></body></html>
