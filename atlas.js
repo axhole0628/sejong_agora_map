@@ -10,12 +10,16 @@ el('period').onchange=e=>location.href='map_'+e.target.value+'.html';
 if(!window.kakao?.maps)throw Error('카카오 지도를 불러오지 못했습니다. 인터넷 연결과 카카오에 등록한 사이트 주소를 확인하세요.');
 const map=new kakao.maps.Map(el('map'),{center:new kakao.maps.LatLng(36.50,127.27),level:7,mapTypeId:kakao.maps.MapTypeId.SKYVIEW});
 const layers={},records=[];let overlay=null,selectedBuilding=null;
+// This atlas covers Sejong: reject missing and out-of-area coordinates before
+// passing them to Kakao's local map projection (0,0 corrupts its bounds).
+const unlocated=[];
+function validCoordinates(lat,lng){return Number.isFinite(lat)&&Number.isFinite(lng)&&lat>36.35&&lat<36.8&&lng>127.1&&lng<127.5;}
 for(const [name,color] of Object.entries(colors)){
 const size=name==='건축물'?30:22,svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${size/2}" cy="${size/2}" r="${size/2-3}" fill="${color}" stroke="white" stroke-width="3"/></svg>`;
 layers[name]={image:new kakao.maps.MarkerImage('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg),new kakao.maps.Size(size,size),{offset:new kakao.maps.Point(size/2,size/2)}),cluster:new kakao.maps.MarkerClusterer({map,averageCenter:true,minLevel:name==='소상공인'?5:7,styles:[{width:'40px',height:'40px',background:color,color:'white',borderRadius:'50%',textAlign:'center',lineHeight:'40px',fontWeight:'bold'}]})};
 }
 function clearSelection(){if(overlay)overlay.setMap(null);overlay=null;selectedBuilding=null;}
-function selectMarker(r){if(overlay)overlay.setMap(null);overlay=new kakao.maps.CustomOverlay({map,position:r.marker.getPosition(),yAnchor:1.5,zIndex:20,content:`<div class="popup-label">${esc(r.item.name)}${r.layer==='건축물'?' · 총 '+r.item.units+'호':''}</div>`});}
+function selectMarker(r){if(overlay)overlay.setMap(null);overlay=null;if(!r)return;overlay=new kakao.maps.CustomOverlay({map,position:r.marker.getPosition(),yAnchor:1.5,zIndex:20,content:`<div class="popup-label">${esc(r.item.name)}${r.layer==='건축물'?' · 총 '+r.item.units+'호':''}</div>`});}
 function button(text,click){const b=document.createElement('button');b.className='entry';b.textContent=text;b.onclick=click;return b;}
 function showShop(s){el('details').innerHTML=`<h2>${esc(s.name)} ${esc(s.branch)}</h2><p>${esc(meta.label)} · ${esc(s.category)}</p><p>${esc(s.address)}<br>건물명: ${esc(s.buildingName||'미기재')}<br>층: ${esc(s.floor||'미기재')} / 호: ${esc(s.unit||'미기재')}</p><p>위치: ${esc(s.coordinateSource)}</p><p class="source">업소번호: ${esc(s.id)}<br>${esc(meta.source)}</p><h3>주소가 연결된 건축물대장</h3>`;s.buildings.forEach(id=>{const b=buildings.find(b=>b.id===id);el('details').append(button(b.name+' · '+b.units+'호',()=>showBuilding(b)))});}
 function showBuilding(b){
@@ -30,13 +34,24 @@ function show(r){selectMarker(r);if(r.layer==='건축물')showBuilding(r.item);e
 const peers=shops.filter(s=>s.lat===r.lat&&s.lng===r.lng);showShop(r.item);
 if(peers.length>1){const h=document.createElement('h3');h.textContent='같은 좌표의 업소 '+peers.length+'곳';el('details').append(h);const list=document.createElement('div');list.className='result-list';peers.forEach(s=>list.append(button(s.name+' '+s.branch,()=>showShop(s))));el('details').append(list);}
 }else el('details').innerHTML=`<h2>${esc(r.item.name)}</h2><p>${esc(r.item.category)}<br>${esc(r.item.address)}</p><p class="source">출처: 세종시 주요 인프라 마스터테이블 좌표포함 CSV</p>`;}
-function add(item,layer){const lat=Number(item.lat),lng=Number(item.lng);if(!Number.isFinite(lat)||!Number.isFinite(lng))throw Error('좌표 누락: '+item.name);const marker=new kakao.maps.Marker({position:new kakao.maps.LatLng(lat,lng),image:layers[layer].image,title:item.name,zIndex:layer==='건축물'?10:1});const r={item,layer,lat,lng,marker};records.push(r);kakao.maps.event.addListener(marker,'click',()=>show(r));}
+function add(item,layer){const lat=Number(item.lat),lng=Number(item.lng);if(!validCoordinates(lat,lng)){unlocated.push(item.name);return;}const marker=new kakao.maps.Marker({position:new kakao.maps.LatLng(lat,lng),image:layers[layer].image,title:item.name,zIndex:layer==='건축물'?10:1});const r={item,layer,lat,lng,marker};records.push(r);kakao.maps.event.addListener(marker,'click',()=>show(r));}
 buildings.forEach(b=>add(b,'건축물'));infra.forEach(i=>add(i,i.type));shops.forEach(s=>add(s,'소상공인'));
 function visible(){const q=el('search').value.trim().toLowerCase(),sector=el('sector').value,enabled=new Set([...document.querySelectorAll('[data-layer]:checked')].map(x=>x.dataset.layer));return records.filter(r=>enabled.has(r.layer)&&(r.layer!=='소상공인'||!sector||r.item.sector===sector)&&(!q||[r.item.name,r.item.address,r.item.branch,r.item.buildingName].join(' ').toLowerCase().includes(q)));}
-function render(){clearSelection();const rows=visible();for(const [name,l]of Object.entries(layers)){l.cluster.clear();l.cluster.addMarkers(rows.filter(r=>r.layer===name).map(r=>r.marker));}el('status').textContent=`${meta.label} · 건축물 ${rows.filter(r=>r.layer==='건축물').length}/38 · 인프라 ${rows.filter(r=>r.layer==='교육'||r.layer==='행정').length}/130 · 업소 ${rows.filter(r=>r.layer==='소상공인').length}/${shops.length}`;el('details').replaceChildren();if(el('search').value.trim()){const list=document.createElement('div');list.className='result-list';rows.slice(0,100).forEach(r=>list.append(button(r.item.name+' · '+r.layer,()=>{map.setLevel(3);map.panTo(r.marker.getPosition());show(r)})));el('details').append(list);if(rows.length>100){const note=document.createElement('p');note.textContent='목록은 검색 결과 중 100건까지 표시합니다.';el('details').append(note);}}}
+function render(){clearSelection();const rows=visible();for(const [name,l]of Object.entries(layers)){l.cluster.clear();l.cluster.addMarkers(rows.filter(r=>r.layer===name).map(r=>r.marker));}el('status').textContent=`${meta.label} · 건축물 ${rows.filter(r=>r.layer==='건축물').length}/38 · 인프라 ${rows.filter(r=>r.layer==='교육'||r.layer==='행정').length}/130 · 업소 ${rows.filter(r=>r.layer==='소상공인').length}/${shops.length}`;el('details').replaceChildren();if(unlocated.length){const note=document.createElement('p');note.className='warning';note.textContent='좌표 확인 필요 (지도에서 제외): '+unlocated.join(', ');el('details').append(note);}if(el('search').value.trim()){const list=document.createElement('div');list.className='result-list';rows.slice(0,100).forEach(r=>list.append(button(r.item.name+' · '+r.layer,()=>{map.setLevel(3);map.panTo(r.marker.getPosition());show(r)})));el('details').append(list);if(rows.length>100){const note=document.createElement('p');note.textContent='목록은 검색 결과 중 100건까지 표시합니다.';el('details').append(note);}}}
 el('search').oninput=render;el('sector').onchange=render;document.querySelectorAll('[data-layer]').forEach(x=>x.onchange=render);
-el('fit').onclick=()=>{const rows=visible();if(!rows.length)return;const bounds=new kakao.maps.LatLngBounds();rows.forEach(r=>bounds.extend(r.marker.getPosition()));map.setBounds(bounds)};
-el('building-list').onclick=()=>{el('details').innerHTML='<h2>건물 38건 · 보완표 반영 호수</h2>';buildings.forEach(b=>el('details').append(button(b.name+' · '+b.units+'호',()=>{map.setLevel(3);map.panTo(new kakao.maps.LatLng(b.lat,b.lng));showBuilding(b)})))};
+el('fit').onclick=()=>{
+const rows=visible().filter(r=>validCoordinates(r.lat,r.lng));
+if(!rows.length)return;
+clearSelection();map.relayout();
+const first=rows[0];
+if(rows.every(r=>r.lat===first.lat&&r.lng===first.lng)){
+map.setLevel(4);map.setCenter(new kakao.maps.LatLng(first.lat,first.lng));return;
+}
+const bounds=new kakao.maps.LatLngBounds();
+rows.forEach(r=>bounds.extend(new kakao.maps.LatLng(r.lat,r.lng)));
+map.setBounds(bounds);
+};
+el('building-list').onclick=()=>{el('details').innerHTML='<h2>건물 38건 · 보완표 반영 호수</h2>';buildings.forEach(b=>el('details').append(button(b.name+' · '+b.units+'호',()=>{if(validCoordinates(Number(b.lat),Number(b.lng))){map.setLevel(3);map.panTo(new kakao.maps.LatLng(b.lat,b.lng));}showBuilding(b)})))};
 render();
 }catch(e){el('status').textContent=e.message;console.error(e);}
 })();
