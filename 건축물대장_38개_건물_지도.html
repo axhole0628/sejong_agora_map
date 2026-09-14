@@ -6,8 +6,11 @@
 const map=new kakao.maps.Map(document.getElementById('map'),{center:new kakao.maps.LatLng(36.49,127.28),level:9});map.setMapTypeId(kakao.maps.MapTypeId.SKYVIEW);
 const geocoder=new kakao.maps.services.Geocoder(),places=new kakao.maps.services.Places(),clusterer=new kakao.maps.MarkerClusterer({map,averageCenter:true,minLevel:7}),info=new kakao.maps.InfoWindow({removable:true});let done=0,found=0;
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-function status(){done++;document.getElementById('status').textContent=`좌표 확인 ${found} / ${BUILDING_LEDGER_DATA.length}곳`}
+const ledgerAddresses={ '엠브릿지타워':'세종특별자치시 도움3로 19', '강남프라자':'세종특별자치시 시청대로 127', '어반아트리움(퍼스트원)':'세종특별자치시 나성북로 30' };
+BUILDING_LEDGER_DATA.forEach(x=>{if(ledgerAddresses[x.name]) x.address=ledgerAddresses[x.name]});
+const failed=[];
+function status(){done++;document.getElementById('status').textContent=`좌표 확인 ${found} / ${BUILDING_LEDGER_DATA.length}곳`+(done<BUILDING_LEDGER_DATA.length?' · 검색 중…':'')+(failed.length?` · 확인 필요: ${failed.join(', ')}`:'')}
 function add(x,lat,lng){const m=new kakao.maps.Marker({position:new kakao.maps.LatLng(lat,lng),title:x.name});kakao.maps.event.addListener(m,'click',()=>{info.setContent(`<div class="info"><strong>${esc(x.name)}</strong><br>${esc(x.address||x.query)}</div>`);info.open(map,m)});clusterer.addMarker(m);found++}
-function keyword(x){places.keywordSearch(x.query,(r,s)=>{if(s===kakao.maps.services.Status.OK)add(x,+r[0].y,+r[0].x);status()})}
+function keyword(x){places.keywordSearch(x.query,(r,s)=>{if(s===kakao.maps.services.Status.OK)add(x,+r[0].y,+r[0].x);else failed.push(x.name);status()})}
 BUILDING_LEDGER_DATA.forEach(x=>{if(!x.address){keyword(x);return}geocoder.addressSearch(x.address,(r,s)=>{if(s===kakao.maps.services.Status.OK){add(x,+r[0].y,+r[0].x);status()}else keyword(x)})});
 </script></body></html>
