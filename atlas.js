@@ -9,6 +9,36 @@ el('controls').innerHTML=`<label for="period" class="muted">소상공인 데이�
 el('period').onchange=e=>location.href='map_'+e.target.value+'.html';
 if(!window.kakao?.maps)throw Error('카카오 지도를 불러오지 못했습니다. 인터넷 연결과 카카오에 등록한 사이트 주소를 확인하세요.');
 const map=new kakao.maps.Map(el('map'),{center:new kakao.maps.LatLng(36.50,127.27),level:7,mapTypeId:kakao.maps.MapTypeId.SKYVIEW});
+const boundaries=ATLAS_COMMON.boundaries;
+if(boundaries){
+const controls=document.createElement('section');controls.className='district-controls';
+controls.innerHTML=`<label class="layer"><input id="district-toggle" type="checkbox" checked><span class="boundary-swatch"></span>읍·면·동 경계와 이름</label><select id="district-select" aria-label="읍면동으로 이동"><option value="">읍·면·동으로 이동</option>${boundaries.districts.map((d,i)=>`<option value="${i}">${esc(d.name)}</option>`).join('')}</select><p class="muted">행정경계 ${esc(boundaries.date)} 기준 · 모든 기준월 공통</p><details class="boundary-source"><summary>경계 자료 출처</summary><p>${esc(boundaries.attribution)}</p><p>${esc(boundaries.modification)}</p><a href="${esc(boundaries.sourceUrl)}" target="_blank" rel="noopener noreferrer">경계 원자료</a> · <a href="${esc(boundaries.licenseUrl)}" target="_blank" rel="noopener noreferrer">CC BY 4.0</a></details>`;
+el('period').after(controls);
+const districtLayers=boundaries.districts.map(d=>{
+const polygons=[];
+for(const rings of d.polygons){
+const path=rings.map(ring=>ring.map(([lng,lat])=>new kakao.maps.LatLng(lat,lng)));
+polygons.push(new kakao.maps.Polygon({map,path,strokeWeight:5,strokeColor:'#0f172a',strokeOpacity:0.5,strokeStyle:'solid',fillOpacity:0,zIndex:-2}));
+polygons.push(new kakao.maps.Polygon({map,path,strokeWeight:2,strokeColor:'#fef08a',strokeOpacity:0.95,strokeStyle:'solid',fillColor:'#fef08a',fillOpacity:0.025,zIndex:-1}));
+}
+const content=document.createElement('div');content.className='district-label';content.textContent=d.name;
+const label=new kakao.maps.CustomOverlay({map,position:new kakao.maps.LatLng(d.label[1],d.label[0]),content,zIndex:0,xAnchor:0.5,yAnchor:0.5});
+return {district:d,polygons,label};
+});
+el('district-toggle').onchange=e=>{const target=e.target.checked?map:null;districtLayers.forEach(l=>{l.polygons.forEach(p=>p.setMap(target));l.label.setMap(target)});};
+el('district-select').onchange=e=>{
+if(e.target.value==='')return;
+const layer=districtLayers[Number(e.target.value)];
+el('district-toggle').checked=true;el('district-toggle').dispatchEvent(new Event('change'));
+const bounds=new kakao.maps.LatLngBounds();
+layer.district.polygons.forEach(rings=>rings[0].forEach(([lng,lat])=>bounds.extend(new kakao.maps.LatLng(lat,lng))));
+map.relayout();
+const mobile=window.innerWidth<=600,panel=el('panel').getBoundingClientRect();
+map.setBounds(bounds,mobile?Math.min(panel.height+24,window.innerHeight*.5):40,40,40,mobile?24:panel.width+40);
+};
+}else{
+const message=document.createElement('p');message.className='muted';message.textContent='읍면동 경계를 보려면 최신 common.js도 함께 업로드하세요.';el('period').after(message);
+}
 const layers={},records=[];let overlay=null,selectedBuilding=null;
 // This atlas covers Sejong: reject missing and out-of-area coordinates before
 // passing them to Kakao's local map projection (0,0 corrupts its bounds).
