@@ -26,9 +26,40 @@ const label=new kakao.maps.CustomOverlay({map,position:new kakao.maps.LatLng(d.l
 return {district:d,polygons,label};
 });
 el('district-toggle').onchange=e=>{const target=e.target.checked?map:null;districtLayers.forEach(l=>{l.polygons.forEach(p=>p.setMap(target));l.label.setMap(target)});};
+const population=ATLAS_COMMON.population;
+let showPopulation=null;
+if(population){
+const box=document.createElement('section');box.className='population-controls';
+box.innerHTML=`<label class="layer"><input id="population-toggle" type="checkbox" checked>읍·면·동 인구 색상</label><label for="population-year" class="muted">인구 기준연도 (소상공인 기준월과 별도)</label><select id="population-year">${[...population.years].reverse().map(y=>`<option value="${y}">${y}년 말</option>`).join('')}</select><div id="population-legend"></div><p id="population-summary"></p><p>제공된 7개 동만 표시 · 총인구 기준이며 인구밀도가 아닙니다. 지역을 클릭하거나 위 목록에서 선택하세요.</p><p>현재 경계에 연도별 통계를 연결한 참고 지도입니다. 경계 변경 지역의 연도 간 증감은 직접 비교하지 마세요.</p><p class="source">출처: ${esc(population.source)}</p><div id="population-detail" aria-live="polite"></div>`;
+controls.append(box);
+const bins=[{max:10000,color:'#ffffb2',label:'1만 미만'},{max:20000,color:'#fecc5c',label:'1만~2만 미만'},{max:30000,color:'#fd8d3c',label:'2만~3만 미만'},{max:Infinity,color:'#bd0026',label:'3만 이상'}];
+const valueFor=d=>population.districts[d.name]?.years[el('population-year').value];
+const shade=d=>{const v=valueFor(d);return !v?'#94a3b8':v.status==='boundary'?'#a78bfa':bins.find(b=>v.total<b.max).color;};
+let selectedDistrict=null;
+showPopulation=d=>{
+selectedDistrict=d;
+const v=valueFor(d),year=el('population-year').value;
+el('population-detail').innerHTML=`<h3>${esc(d.name)} · ${year}년 말</h3>${!v?'<p>자료 미제공: 이 지역은 연간 엑셀에 없습니다. 인구 0명을 뜻하지 않습니다.</p>':`${v.status==='boundary'?'<p class="warning">경계 변경 주의: 원자료의 0은 무거주로 해석하지 않습니다. 분동 전 집계일 수 있으므로 현재 경계에 인구 색상을 적용하지 않았습니다.</p>':''}<p><strong>${v.status==='boundary'?'원자료 총 거주자수':'총인구'} ${v.total.toLocaleString()}명</strong><br>세대수 ${v.households.toLocaleString()}세대<br>남 ${v.male.toLocaleString()}명 · 여 ${v.female.toLocaleString()}명<br>세대당 인구 ${v.perHousehold.toFixed(2)}명</p>`}`;
+};
+function paintPopulation(){
+const enabled=el('population-toggle').checked;
+districtLayers.forEach(l=>l.polygons.forEach((p,i)=>{if(i%2===1)p.setOptions({fillColor:enabled?shade(l.district):'#fef08a',fillOpacity:enabled?0.48:0.025});}));
+el('population-legend').innerHTML=enabled?[...bins,{color:'#94a3b8',label:'자료 미제공'},{color:'#a78bfa',label:'경계 변경 주의'}].map(b=>`<span><i style="background:${b.color}"></i>${b.label}</span>`).join(''):'';
+const city=population.city[el('population-year').value];
+el('population-summary').textContent=`${el('population-year').value}년 말 세종시 전체 ${city.total.toLocaleString()}명 · ${city.households.toLocaleString()}세대 (표시 7개 동의 합계 아님)`;
+if(selectedDistrict)showPopulation(selectedDistrict);
+}
+el('population-year').onchange=paintPopulation;
+el('population-toggle').onchange=()=>{if(el('population-toggle').checked){el('district-toggle').checked=true;el('district-toggle').dispatchEvent(new Event('change'));}paintPopulation();};
+const boundaryVisibility=el('district-toggle').onchange;
+el('district-toggle').onchange=e=>{boundaryVisibility(e);if(!e.target.checked){el('population-toggle').checked=false;paintPopulation();}};
+districtLayers.forEach(l=>l.polygons.forEach(p=>kakao.maps.event.addListener(p,'click',()=>showPopulation(l.district))));
+paintPopulation();
+}
 el('district-select').onchange=e=>{
 if(e.target.value==='')return;
 const layer=districtLayers[Number(e.target.value)];
+if(showPopulation)showPopulation(layer.district);
 el('district-toggle').checked=true;el('district-toggle').dispatchEvent(new Event('change'));
 const bounds=new kakao.maps.LatLngBounds();
 layer.district.polygons.forEach(rings=>rings[0].forEach(([lng,lat])=>bounds.extend(new kakao.maps.LatLng(lat,lng))));
