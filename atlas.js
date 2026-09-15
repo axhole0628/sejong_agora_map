@@ -71,6 +71,65 @@ map.setBounds(bounds,mobile?Math.min(panel.height+24,window.innerHeight*.5):40,4
 const message=document.createElement('p');message.className='muted';message.textContent='읍면동 경계를 보려면 최신 common.js도 함께 업로드하세요.';el('period').after(message);
 }
 const layers={},records=[];let overlay=null,selectedBuilding=null;
+// These are educational, unitless indices, not station measurements or AQI.
+const air=ATLAS_COMMON.airQuality;
+let airForBuilding=()=>'';
+if(air){
+const correspondingQuarter=Object.entries(air.matchedPeriods).find(([,period])=>period===meta.period)?.[0]||'';
+const quarterLabel=q=>q?q.slice(0,4)+'년 '+q.slice(-1)+'분기':'대응 자료 없음';
+const section=document.createElement('section');section.className='air-controls';
+section.innerHTML=`<h2>미세먼지·대기질 분기지수</h2><p class="air-notice">교육용 상대지수 · 단위 없음<br>실시간 농도·공식 통계·건강등급이 아닙니다.</p><label class="layer"><input id="air-toggle" type="checkbox" checked>상권별 지수 표시</label><label for="air-quarter" class="muted">대기질 기준분기 (별도 선택)</label><select id="air-quarter">${!correspondingQuarter?`<option value="">${esc(meta.label)} 대응 자료 없음</option>`:''}${air.quarters.map(q=>`<option value="${esc(q)}" ${q===correspondingQuarter?'selected':''}>${quarterLabel(q)}</option>`).join('')}</select><select id="air-metric" aria-label="지도에 표시할 대기질 지표">${air.metrics.map(m=>`<option value="${esc(m.key)}" ${m.key==='discomfort'?'selected':''}>${esc(m.label)}</option>`).join('')}</select><p id="air-timing" role="status"></p><div id="air-legend"></div><select id="air-region" aria-label="대기질 권역 선택"><option value="">상권 선택·상세 보기</option>${air.regions.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select><button id="air-fit">대기질 권역 전체 보기</button><div id="air-detail" aria-live="polite"></div><details class="air-source"><summary>자료 범위·출처·해석 주의</summary><p>${esc(air.note)}</p><p>${esc(air.coordinateNote)}</p><p>6개 권역에 연결된 건축물대장 15건에만 적용합니다. 나머지 23건은 자료 미제공이며 0을 뜻하지 않습니다. 행정동 전체의 대기질로 확장하지 않았습니다.</p><p>${esc(air.formulaNote||'종합지수는 재계산하지 않고 CSV 값을 그대로 표시합니다.')}</p><p class="source">출처: ${esc(air.source)}<br>해석 기준: README_참가자용_자료안내.pdf 2쪽</p></details>`;
+el('period').after(section);
+const metric=()=>air.metrics.find(m=>m.key===el('air-metric').value);
+const valueText=v=>Number.isFinite(v)?v.toLocaleString('ko-KR',{maximumFractionDigits:1}):'자료 없음';
+const metricTable=v=>`<table class="air-table"><caption>단위 없는 교육용 상대지수</caption><tbody>${air.metrics.map(m=>`<tr><th scope="row">${esc(m.label)}</th><td>${valueText(v[m.key])}</td></tr>`).join('')}</tbody></table>`;
+const sourceQuarterNote=()=>el('air-quarter').value===correspondingQuarter&&correspondingQuarter?'소상공인 자료와 대응하는 기준분기입니다.':'소상공인 기준월과 대응하지 않는 별도 분기입니다. 같은 시점으로 비교하지 마세요.';
+airForBuilding=b=>{
+const region=air.regions.find(r=>r.buildingIds.includes(b.id)),q=el('air-quarter').value;
+return `<h3>상권 미세먼지·대기질</h3>${!region?'<p>이 건물에 대응하는 권역 자료는 제공되지 않았습니다.</p>':`<p>${esc(region.name)} · ${quarterLabel(q)}</p>${q&&region.values[q]?metricTable(region.values[q]):'<p>해당 기준월의 대응 자료가 없습니다. 대기질 기준분기를 별도로 선택해 볼 수 있습니다.</p>'}`}<p class="muted">권역 단위 교육용 지수이며, 건물에서 실측한 농도가 아닙니다.${q?' '+sourceQuarterNote():''}</p>`;
+};
+function showAirRegion(region){
+const q=el('air-quarter').value,v=region.values[q],m=metric();
+el('air-detail').innerHTML=`<h3>${esc(region.name)} · ${quarterLabel(q)}</h3><p>대상: ${esc(region.dong)} ${esc(region.parcelText)}<br>연결 건물 ${region.buildingIds.length}건 · 측정소 위치 아님</p>${v?metricTable(v):'<p>선택 시점 자료 없음 (0이 아님)</p>'}<details><summary>제공된 4개 분기 비교</summary><table class="air-table"><caption>${esc(m.label)} · 누락 분기 보간 없음</caption><tbody>${air.quarters.map(quarter=>`<tr ${q===quarter?'class="air-current"':''}><th scope="row">${quarterLabel(quarter)}</th><td>${valueText(region.values[quarter]?.[m.key])}</td></tr>`).join('')}</tbody></table></details>`;
+}
+const airMarkers=air.regions.map(region=>{
+const badge=document.createElement('button');badge.type='button';badge.className='air-badge';badge.dataset.airRegion=region.id;
+badge.onclick=()=>{el('air-region').value=region.id;showAirRegion(region);el('air-detail').scrollIntoView({block:'nearest'});};
+const marker=new kakao.maps.CustomOverlay({position:new kakao.maps.LatLng(region.lat,region.lng),content:badge,clickable:true,xAnchor:0.5,yAnchor:1.6,zIndex:12});
+return {region,badge,marker};
+});
+function renderAir(){
+const q=el('air-quarter').value,m=metric(),enabled=el('air-toggle').checked;
+const values=air.regions.flatMap(r=>Object.values(r.values).map(v=>v[m.key])).filter(Number.isFinite),lo=Math.min(...values),hi=Math.max(...values);
+const fraction=v=>hi===lo?0.5:(v-lo)/(hi-lo);
+const color=v=>{const t=fraction(v);return `rgb(${[213,243,238].map((x,i)=>Math.round(x+([19,105,95][i]-x)*t)).join(',')})`;};
+airMarkers.forEach(({region,badge,marker})=>{
+const v=region.values[q]?.[m.key];
+badge.textContent=region.name+' · '+valueText(v);badge.style.background=Number.isFinite(v)?color(v):'#e2e8f0';badge.style.color=Number.isFinite(v)&&fraction(v)>.55?'white':'#123c36';
+badge.title=`${region.name} · ${quarterLabel(q)} · ${m.label} ${valueText(v)} / 교육용·단위 없음·대표위치`;
+badge.setAttribute('aria-label',badge.title+' 상세 보기');
+marker.setMap(enabled&&Number.isFinite(v)?map:null);
+});
+el('air-timing').textContent=q?quarterLabel(q)+' · '+sourceQuarterNote():'해당 소상공인 기준월의 대응 대기질 자료가 없습니다. 다른 분기는 위에서 별도로 선택하세요. 임의 보간은 하지 않습니다.';
+el('air-timing').className=q===correspondingQuarter&&q?'muted':'air-notice';
+el('air-legend').innerHTML=q&&enabled?`<div class="air-ramp"></div><div class="air-scale"><span>${valueText(lo)}</span><span>${valueText(hi)}</span></div><p>${esc(m.label)} · 진할수록 불편 지수 큼<br>4개 분기 전체에 같은 색상 범위 적용</p>`:'';
+const selected=air.regions.find(r=>r.id===el('air-region').value);if(selected)showAirRegion(selected);
+const summary=document.querySelector('[data-air-building]');if(summary){const b=buildings.find(b=>b.id===summary.dataset.airBuilding);if(b)summary.innerHTML=airForBuilding(b);}
+el('air-fit').disabled=!q||!enabled;
+}
+function fitAir(regions){
+if(!regions.length)return;
+const bounds=new kakao.maps.LatLngBounds();regions.forEach(r=>bounds.extend(new kakao.maps.LatLng(r.lat,r.lng)));
+if(regions.length===1){const r=regions[0];bounds.extend(new kakao.maps.LatLng(r.lat-.002,r.lng-.002));bounds.extend(new kakao.maps.LatLng(r.lat+.002,r.lng+.002));}
+map.relayout();
+const mobile=window.innerWidth<=600,panel=el('panel').getBoundingClientRect();
+map.setBounds(bounds,mobile?Math.min(panel.height+24,window.innerHeight*.5):40,100,100,mobile?50:panel.width+80);
+}
+el('air-quarter').onchange=renderAir;el('air-metric').onchange=renderAir;el('air-toggle').onchange=renderAir;
+el('air-region').onchange=()=>{const r=air.regions.find(r=>r.id===el('air-region').value);if(!r){el('air-detail').replaceChildren();return;}showAirRegion(r);fitAir([r]);};
+el('air-fit').onclick=()=>fitAir(air.regions.filter(r=>r.values[el('air-quarter').value]));
+renderAir();
+}
 // This atlas covers Sejong: reject missing and out-of-area coordinates before
 // passing them to Kakao's local map projection (0,0 corrupts its bounds).
 const unlocated=[];
@@ -87,6 +146,7 @@ function showBuilding(b){
 selectedBuilding=b.id;
 const peers=buildings.filter(x=>x.address===b.address),tenantShops=shops.filter(s=>s.buildings.includes(b.id));
 el('details').innerHTML=`<h2>${esc(b.name)}</h2><p>${esc(b.address)}</p><span class="metric">${b.appliedUnits!==null?'보완표 적용':'대장 표기'} 총 ${b.units.toLocaleString()}호</span><p>가구수 ${b.households} · 세대수 ${b.dwellings}</p>${b.appliedUnits!==null?`<p class="warning">원래 대장 표기: ${b.ledgerUnits}호 → 분석 적용: <b>${b.appliedUnits}호</b><br>${esc(b.correctionReason)}<br>출처: 건축물대장_호실수_보완표.csv</p>`:''}<p class="source">${esc(b.unitSource)} · ${esc(b.document)}<br>대장 발급일: ${esc(b.ledgerDate)}</p><h3>${esc(meta.label)} 수록 업소 ${tenantShops.length}곳${peers.length>1?' (동일 주소 전체)':''}</h3>${peers.length>1?'<p class="warning">이 주소에 대장 '+peers.length+'건이 있습니다. 업소를 개별 동에 임의 배분하지 않았습니다.</p>':''}<div id="peer-buildings"></div><p class="muted">업소 수와 대장 호수의 차이는 실제 공실 수를 의미하지 않습니다.</p><div id="tenant-list" class="result-list"></div>`;
+if(air){const summary=document.createElement('section');summary.className='air-building';summary.dataset.airBuilding=b.id;summary.innerHTML=airForBuilding(b);el('details').insertBefore(summary,el('details').querySelector('h3'));}
 peers.filter(x=>x.id!==b.id).forEach(x=>el('peer-buildings').append(button(x.name+' · 총 '+x.units+'호',()=>showBuilding(x))));
 tenantShops.forEach(s=>el('tenant-list').append(button(s.name+(s.branch?' '+s.branch:'')+' · '+(s.floor||'?')+'층',()=>showShop(s))));
 const r=records.find(r=>r.layer==='건축물'&&r.item.id===b.id);selectMarker(r);
